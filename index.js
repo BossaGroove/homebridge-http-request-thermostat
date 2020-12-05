@@ -4,15 +4,21 @@ const request = require('request');
 const ip = require('ip');
 const http = require('http');
 
+let globalHomebridge;
+
 module.exports = function (homebridge) {
 	Service = homebridge.hap.Service;
 	Characteristic = homebridge.hap.Characteristic;
 	homebridge.registerAccessory('homebridge-http-request-thermostat', 'HttpThermostat', Thermostat);
+
+	globalHomebridge = homebridge;
 }
 
 class Thermostat {
 	constructor(log, config) {
 		this.log = log
+
+		this.notificationID = config.notificationID;
 
 		this.name = config.name;
 		this.slug = config.slug;
@@ -65,7 +71,54 @@ class Thermostat {
 			}.bind(this))
 		}
 
+		globalHomebridge.on('didFinishLaunching', function() {
+			// check if notificationRegistration is set, if not 'notificationRegistration' is probably not installed on the system
+			if (global.notificationRegistration && typeof global.notificationRegistration === 'function') {
+				try {
+					global.notificationRegistration(this.notificationID, this.handleNotification.bind(this));
+				} catch (error) {
+					// notificationID is already taken
+				}
+			}
+		}.bind(this));
+
 		this.service = new Service.Thermostat(this.name);
+	}
+
+	handleNotification(jsonRequest) {
+		const characteristic = jsonRequest.characteristic;
+		const value = jsonRequest.value;
+
+		let characteristicEnum = null;
+
+		switch (characteristic) {
+			case 'TargetTemperature':
+				characteristicEnum = Characteristic.TargetTemperature;
+				break;
+			case 'CurrentTemperature':
+				characteristicEnum = Characteristic.CurrentTemperature;
+				break;
+			case 'TargetHeatingCoolingState':
+				characteristicEnum = Characteristic.TargetHeatingCoolingState;
+				break;
+			case 'CurrentHeatingCoolingState':
+				characteristicEnum = Characteristic.CurrentHeatingCoolingState;
+				break;
+			case 'CoolingThresholdTemperature':
+				characteristicEnum = Characteristic.CoolingThresholdTemperature;
+				break;
+			case 'HeatingThresholdTemperature':
+				characteristicEnum = Characteristic.HeatingThresholdTemperature;
+				break;
+			case 'CurrentRelativeHumidity':
+				characteristicEnum = Characteristic.CurrentRelativeHumidity;
+				break;
+			default:
+				this.log(`Unknown characteristic when handling notification: ${characteristic}`);
+				break;
+		}
+
+		this.service.getCharacteristic(characteristicEnum).updateValue(value);
 	}
 
 	identify(callback) {
